@@ -815,6 +815,7 @@ bidirectional_lang_item_map! {
     DynMetadata,
     Option,
     OwnedBox,
+    PhantomUnmovable,
     Poll,
 // tidy-alphabetical-end
 }

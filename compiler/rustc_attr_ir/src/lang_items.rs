@@ -278,6 +278,7 @@ language_item_table! {
     Pin,                     kw::Pin,                  pin_type,                   Target::Struct,         GenericRequirement::None;
 
     Move,                    sym::move_trait,          move_trait,                 Target::Trait,          GenericRequirement::None;
+    PhantomUnmovable,        sym::phantom_unmovable,   phantom_unmovable,          Target::Struct,         GenericRequirement::None;
 
     OrderingEnum,            sym::Ordering,            ordering_enum,              Target::Enum,           GenericRequirement::Exact(0);
     PartialEq,               sym::eq,                  eq_trait,                   Target::Trait,          GenericRequirement::Exact(1);

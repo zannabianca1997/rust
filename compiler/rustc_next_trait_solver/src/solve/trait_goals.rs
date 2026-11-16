@@ -3,7 +3,7 @@
 use rustc_type_ir::data_structures::IndexSet;
 use rustc_type_ir::fast_reject::DeepRejectCtxt;
 use rustc_type_ir::inherent::*;
-use rustc_type_ir::lang_items::SolverTraitLangItem;
+use rustc_type_ir::lang_items::{SolverAdtLangItem, SolverTraitLangItem};
 use rustc_type_ir::solve::{
     AliasBoundKind, CandidatePreferenceMode, CanonicalResponse, ExternalConstraintsData,
     IsIdentity, MaybeInfo, NoSolutionOrRerunNonErased, OpaqueTypesJank,
@@ -212,6 +212,16 @@ where
             return Err(NoSolution.into());
         }
 
+        // `PhantomUnmovable` is the one type that is never movable; containing
+        // types become immobile through the structural (constituent) walk over
+        // their by-value fields.
+        if cx.is_trait_lang_item(goal.predicate.def_id(), SolverTraitLangItem::Move)
+            && let ty::Adt(def, _) = goal.predicate.self_ty().kind()
+            && cx.as_adt_lang_item(def.def_id()) == Some(SolverAdtLangItem::PhantomUnmovable)
+        {
+            return Err(NoSolution.into());
+        }
+
         if let Some(result) = ecx.disqualify_auto_trait_candidate_due_to_possible_impl(goal) {
             return result;
         }
@@ -254,7 +264,13 @@ where
         ecx.probe_and_evaluate_goal_for_constituent_tys(
             CandidateSource::BuiltinImpl(BuiltinImplSource::Misc),
             goal,
-            structural_traits::instantiate_constituent_tys_for_auto_trait,
+            |ecx, ty| {
+                structural_traits::instantiate_constituent_tys_for_auto_trait(
+                    ecx,
+                    goal.predicate.def_id(),
+                    ty,
+                )
+            },
         )
     }
 

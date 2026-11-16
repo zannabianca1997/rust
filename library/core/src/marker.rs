@@ -1444,19 +1444,15 @@ pub unsafe auto trait Forget {
     message = "values of type `{Self}` may not be movable",
     label = "may not be movable"
 )]
-#[unstable(feature = "move_trait", issue = "149607")]
+#[unstable(feature = "move_trait", issue = "161457")]
 pub unsafe auto trait Move {
     // Empty.
 }
 
-marker_impls! {
-    #[unstable(feature = "move_trait", issue = "149607")]
-    unsafe Move for
-        {T: PointeeSized + ?Move} *const T,
-        {T: PointeeSized + ?Move} *mut T,
-        {T: PointeeSized + ?Move} &T,
-        {T: PointeeSized + ?Move} &mut T,
-        {T: PointeeSized + ?Move} PhantomData<T>,
-        {T: PointeeSized + ?Move} pattern_type!(*const T is !null),
-        {T: PointeeSized + ?Move} pattern_type!(*mut T is !null),
-}
+#[lang = "phantom_unmovable"]
+#[unstable(feature = "move_trait", issue = "161457")]
+// Cannot implement `Debug`: all traits require `Self: Move` by default, and
+// this type is deliberately not movable.
+#[allow(missing_debug_implementations)]
+/// Marker struct: types containing `PhantomUnmovable` by value are not movable.
+pub struct PhantomUnmovable;

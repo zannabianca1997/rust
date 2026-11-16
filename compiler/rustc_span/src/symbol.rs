@@ -1616,6 +1616,7 @@ symbols! {
         pattern_type_range_trait,
         pattern_types,
         phantom_data,
+        phantom_unmovable,
         phase,
         pic,
         pie,

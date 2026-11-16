@@ -340,7 +340,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         let self_ty = obligation.predicate.self_ty().map_bound(|ty| self.infcx.shallow_resolve(ty));
         let self_ty = self.infcx.enter_forall_and_leak_universe(self_ty);
 
-        let constituents = self.constituent_types_for_auto_trait(self_ty)?;
+        let constituents =
+            self.constituent_types_for_auto_trait(obligation.predicate.def_id(), self_ty)?;
         let constituents = self.infcx.enter_forall_and_leak_universe(constituents);
 
         let cause = obligation.derived_cause(ObligationCauseCode::BuiltinDerived);

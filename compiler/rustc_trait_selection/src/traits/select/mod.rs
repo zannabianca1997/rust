@@ -2188,8 +2188,12 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
     #[instrument(level = "debug", skip(self), ret)]
     fn constituent_types_for_auto_trait(
         &self,
+        trait_def_id: DefId,
         t: Ty<'tcx>,
     ) -> Result<ty::Binder<'tcx, AutoImplConstituents<'tcx>>, SelectionError<'tcx>> {
+        // `Move` uses structural movability: a type is movable unless it contains
+        // `PhantomUnmovable` inline, so pointers and other indirection stop the walk.
+        let is_move = self.tcx().is_move_trait(trait_def_id);
         Ok(match *t.kind() {
             ty::Uint(_)
             | ty::Int(_)
@@ -2234,6 +2238,12 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
             | ty::Bound(..)
             | ty::Infer(ty::TyVar(_) | ty::FreshTy(_) | ty::FreshIntTy(_) | ty::FreshFloatTy(_)) => {
                 bug!("asked to assemble constituent types of unexpected type: {:?}", t);
+            }
+
+            // Moving a reference, raw pointer, slice or pattern type never moves the
+            // data it points to, so these are always movable for `Move`.
+            ty::RawPtr(..) | ty::Ref(..) | ty::Pat(..) | ty::Slice(..) if is_move => {
+                ty::Binder::dummy(AutoImplConstituents { types: vec![], assumptions: vec![] })
             }
 
             ty::RawPtr(element_ty, _) | ty::Ref(_, element_ty, _) => {
@@ -2287,11 +2297,23 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
                 }),
 
             // For `PhantomData<T>`, we pass `T`.
+            // `PhantomData<T>` contains nothing inline, so `Move` ignores `T`.
             ty::Adt(def, args) if def.is_phantom_data() => {
-                ty::Binder::dummy(AutoImplConstituents {
-                    types: args.types().collect(),
-                    assumptions: vec![],
-                })
+                if is_move {
+                    ty::Binder::dummy(AutoImplConstituents { types: vec![], assumptions: vec![] })
+                } else {
+                    ty::Binder::dummy(AutoImplConstituents {
+                        types: args.types().collect(),
+                        assumptions: vec![],
+                    })
+                }
+            }
+
+            // Owned boxes only move the pointer; the pointee stays at its address.
+            ty::Adt(def, _)
+                if is_move && self.tcx().is_lang_item(def.did(), LangItem::OwnedBox) =>
+            {
+                ty::Binder::dummy(AutoImplConstituents { types: vec![], assumptions: vec![] })
             }
 
             ty::Adt(def, args) => ty::Binder::dummy(AutoImplConstituents {

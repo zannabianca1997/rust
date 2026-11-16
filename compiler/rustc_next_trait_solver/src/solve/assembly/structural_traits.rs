@@ -4,7 +4,7 @@
 use derive_where::derive_where;
 use rustc_type_ir::data_structures::HashMap;
 use rustc_type_ir::inherent::*;
-use rustc_type_ir::lang_items::{SolverProjectionLangItem, SolverTraitLangItem};
+use rustc_type_ir::lang_items::{SolverAdtLangItem, SolverProjectionLangItem, SolverTraitLangItem};
 use rustc_type_ir::solve::SizedTraitKind;
 use rustc_type_ir::solve::inspect::ProbeKind;
 use rustc_type_ir::{
@@ -23,6 +23,7 @@ use crate::solve::{
 #[instrument(level = "trace", skip(ecx), ret)]
 pub(in crate::solve) fn instantiate_constituent_tys_for_auto_trait<D, I>(
     ecx: &EvalCtxt<'_, D>,
+    trait_def_id: I::TraitId,
     ty: I::Ty,
 ) -> Result<ty::Binder<I, Vec<I::Ty>>, NoSolution>
 where
@@ -30,6 +31,9 @@ where
     I: Interner,
 {
     let cx = ecx.cx();
+    // `Move` uses structural movability: a type is movable unless it contains
+    // `PhantomUnmovable` inline, so pointers and other indirection stop the walk.
+    let is_move = cx.is_trait_lang_item(trait_def_id, SolverTraitLangItem::Move);
     match ty.kind() {
         ty::Uint(_)
         | ty::Int(_)
@@ -63,6 +67,12 @@ where
         | ty::Infer(_)
         | ty::Alias(ty::IsRigid::Yes, ty::AliasTy { kind: ty::Opaque { .. }, .. }) => {
             panic!("unexpected type `{ty:?}`")
+        }
+
+        // Moving a reference, raw pointer, slice or pattern type never moves the
+        // data it points to, so these are always movable for `Move`.
+        ty::RawPtr(..) | ty::Ref(..) | ty::Pat(..) | ty::Slice(..) if is_move => {
+            Ok(ty::Binder::dummy(vec![]))
         }
 
         ty::RawPtr(element_ty, _) | ty::Ref(_, element_ty, _) => {
@@ -99,7 +109,22 @@ where
         ty::UnsafeBinder(bound_ty) => Ok(bound_ty.map_bound(|ty| vec![ty])),
 
         // For `PhantomData<T>`, we pass `T`.
-        ty::Adt(def, args) if def.is_phantom_data() => Ok(ty::Binder::dummy(vec![args.type_at(0)])),
+        // `PhantomData<T>` contains nothing inline, so `Move` ignores `T`.
+        ty::Adt(def, args) if def.is_phantom_data() => {
+            if is_move {
+                Ok(ty::Binder::dummy(vec![]))
+            } else {
+                Ok(ty::Binder::dummy(vec![args.type_at(0)]))
+            }
+        }
+
+        // Owned boxes only move the pointer; the pointee stays at its address.
+        ty::Adt(def, _)
+            if is_move
+                && cx.as_adt_lang_item(def.def_id()) == Some(SolverAdtLangItem::OwnedBox) =>
+        {
+            Ok(ty::Binder::dummy(vec![]))
+        }
 
         ty::Adt(def, args) => Ok(ty::Binder::dummy(
             def.all_field_tys(cx)

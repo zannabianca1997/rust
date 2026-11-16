@@ -22,6 +22,7 @@ pub enum SolverAdtLangItem {
     DynMetadata,
     Option,
     OwnedBox,
+    PhantomUnmovable,
     Poll,
     // tidy-alphabetical-end
 }

@@ -754,6 +754,14 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         let def_id = obligation.predicate.def_id();
 
+        // `Move`ability: all types are move, EXCEPT the single `PhantomUnmoveable`, and types that contains it inline.
+        if self.tcx().is_move_trait(def_id)
+            && let ty::Adt(adt_def, _) = self_ty.kind()
+            && self.tcx().is_lang_item(adt_def.did(), LangItem::PhantomUnmovable)
+        {
+            return;
+        }
+
         let mut check_impls = || {
             // Only consider auto impls if there are no manual impls for the root of `self_ty`.
             //

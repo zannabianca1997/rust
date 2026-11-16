@@ -655,7 +655,7 @@ declare_features! (
     /// Allows `move(expr)` in closures.
     (incomplete, move_expr, "1.97.0", Some(155050)),
     /// The `Move` autotrait.
-    (incomplete, move_trait, "CURRENT_RUSTC_VERSION", Some(149607)),
+    (incomplete, move_trait, "CURRENT_RUSTC_VERSION", Some(161457)),
     /// The `movrs` target feature on x86.
     (unstable, movrs_target_feature, "1.88.0", Some(137976)),
     /// Allows the `multiple_supertrait_upcastable` lint.

@@ -90,6 +90,21 @@ fn enforce_trait_manually_implementable(
         return Err(err.emit_err());
     }
 
+    // Negative impls of `Move` are disallowed, as the only primitive immobile type is `PhantomUnmoveable`
+    if tcx.is_move_trait(trait_def_id)
+        && tcx.impl_polarity(impl_def_id) == ty::ImplPolarity::Negative
+    {
+        return Err(tcx
+            .dcx()
+            .struct_span_err(
+                impl_header_span,
+                "negative impls for the `Move` trait are not permitted",
+            )
+            .with_span_label(impl_header_span, "impl of `!Move` not allowed")
+            .with_help("To make an unmoveable type, add `PhantomUnmoveable` to it's members")
+            .emit_err());
+    }
+
     if let ty::trait_def::TraitSpecializationKind::AlwaysApplicable = trait_def.specialization_kind
     {
         if !tcx.features().specialization()
