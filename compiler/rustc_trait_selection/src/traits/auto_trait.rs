@@ -82,10 +82,7 @@ impl<'tcx> AutoTraitFinder<'tcx> {
         let tcx = self.tcx;
 
         // Without `#![feature(forget_trait)]`, assume absolutely all types are forget.
-        // Without `#![feature(move_trait)]`, assume absolutely all types are move.
-        if !tcx.features().forget_trait() && tcx.is_forget_trait(trait_did)
-            || !tcx.features().move_trait() && tcx.is_move_trait(trait_did)
-        {
+        if !tcx.features().forget_trait() && tcx.is_forget_trait(trait_did) {
             let info = AutoTraitInfo {
                 full_user_env: typing_env.param_env,
                 region_data: Default::default(),
