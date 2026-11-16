@@ -233,7 +233,7 @@ pub fn implicit_fast_path<'tcx>(
             Some(LangItem::Sized) => SizedTraitKind::Sized,
             Some(LangItem::MetaSized) => SizedTraitKind::MetaSized,
             Some(LangItem::Move) => {
-                return trait_pred.self_ty().has_trivial_move(tcx);
+                return trait_pred.self_ty().has_trivial_move(tcx, trait_pred.def_id());
             }
             _ => return false,
         };

@@ -3,12 +3,13 @@
 use rustc_type_ir::data_structures::IndexSet;
 use rustc_type_ir::fast_reject::DeepRejectCtxt;
 use rustc_type_ir::inherent::*;
-use rustc_type_ir::lang_items::{SolverAdtLangItem, SolverTraitLangItem};
+use rustc_type_ir::lang_items::SolverTraitLangItem;
 use rustc_type_ir::solve::{
     AliasBoundKind, CandidatePreferenceMode, CanonicalResponse, ExternalConstraintsData,
     IsIdentity, MaybeInfo, NoSolutionOrRerunNonErased, OpaqueTypesJank,
     QueryResultOrRerunNonErased, RerunNonErased, RerunReason, RerunResultExt, SizedTraitKind,
 };
+use rustc_type_ir::structural_move::{MoveCheck, check_structural_move};
 use rustc_type_ir::{
     self as ty, ClausePolarity, ExcludeImplicitBounds, ExistentialPredicate, FieldInfo, Interner,
     MayBeErased, Movability, Region, TraitClause, TraitRef, TypeVisitableExt as _, TypingMode,
@@ -212,14 +213,19 @@ where
             return Err(NoSolution.into());
         }
 
-        // `PhantomUnmovable` is the one type that is never movable; containing
-        // types become immobile through the structural (constituent) walk over
-        // their by-value fields.
-        if cx.is_trait_lang_item(goal.predicate.def_id(), SolverTraitLangItem::Move)
-            && let ty::Adt(def, _) = goal.predicate.self_ty().kind()
-            && cx.as_adt_lang_item(def.def_id()) == Some(SolverAdtLangItem::PhantomUnmovable)
-        {
-            return Err(NoSolution.into());
+        // `Move` is purely structural.
+        //
+        // The only immobile type is `PhantomUnmovable`, and all types that contains it inline.
+        if cx.is_trait_lang_item(goal.predicate.def_id(), SolverTraitLangItem::Move) {
+            match check_structural_move(cx, goal.predicate.def_id(), goal.predicate.self_ty()) {
+                MoveCheck::Movable => {
+                    return ecx.probe_builtin_trait_candidate(BuiltinImplSource::Trivial).enter(
+                        |ecx| ecx.evaluate_added_goals_and_make_canonical_response(Certainty::Yes),
+                    );
+                }
+                MoveCheck::Unmovable => return Err(NoSolution.into()),
+                MoveCheck::Unknown => {}
+            }
         }
 
         if let Some(result) = ecx.disqualify_auto_trait_candidate_due_to_possible_impl(goal) {

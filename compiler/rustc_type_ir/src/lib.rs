@@ -55,6 +55,7 @@ pub mod region_constraint;
 pub mod relate;
 pub mod search_graph;
 pub mod solve;
+pub mod structural_move;
 pub mod sty;
 pub mod transmute;
 pub mod walk;
