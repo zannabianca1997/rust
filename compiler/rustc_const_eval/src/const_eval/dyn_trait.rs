@@ -1,6 +1,7 @@
+use std::iter::once;
+
 use rustc_middle::mir::interpret::{CtfeProvenance, InterpResult, Scalar, interp_ok};
-use rustc_middle::ty;
-use rustc_middle::ty::{Region, Ty};
+use rustc_middle::ty::{self, ExistentialPredicateStableCmpExt as _, Region, Ty};
 use rustc_span::def_id::DefId;
 use rustc_span::{span_bug, sym};
 
@@ -24,17 +25,29 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
         for b in data.iter() {
             match b.skip_binder() {
                 ty::ExistentialPredicate::Trait(tr) => principal = Some(b.rebind(tr)),
-                ty::ExistentialPredicate::AutoTrait(did) => auto_traits_def_ids.push(b.rebind(did)),
+                ty::ExistentialPredicate::AutoTrait(did) => {
+                    if tcx.is_move_trait(did) {
+                        // FIXME(zannabianca1997): we should report somehow ?Move bounds
+                        continue;
+                    };
+                    auto_traits_def_ids.push(b.rebind(did))
+                }
                 ty::ExistentialPredicate::Projection(p) => projections.push(b.rebind(p)),
             }
         }
 
+        let move_pred = ty::Binder::bind_with_vars(
+            ty::ExistentialPredicate::AutoTrait(tcx.lang_items().move_trait().unwrap()),
+            ty::List::empty(),
+        );
+
         // This is to make principal dyn type include Trait and projection predicates, excluding auto traits.
         let principal_ty: Option<Ty<'tcx>> = principal.map(|_tr| {
-            let preds = tcx
-                .mk_poly_existential_predicates_from_iter(data.iter().filter(|b| {
-                    !matches!(b.skip_binder(), ty::ExistentialPredicate::AutoTrait(_))
-                }));
+            let preds = tcx.mk_poly_existential_predicates_from_iter(
+                data.iter()
+                    .filter(|b| !matches!(b.skip_binder(), ty::ExistentialPredicate::AutoTrait(_)))
+                    .chain(once(move_pred)),
+            );
             Ty::new_dynamic(tcx, preds, region)
         });
 
@@ -50,6 +63,7 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
                         principal_ty,
                         &auto_traits_def_ids,
                         region,
+                        move_pred,
                     )?;
                 }
                 other => {
@@ -65,6 +79,7 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
         &self,
         auto_trait_def_id: ty::Binder<'tcx, DefId>,
         region: Region<'tcx>,
+        move_pred: ty::Binder<'tcx, ty::ExistentialPredicate<'tcx>>,
     ) -> Ty<'tcx> {
         let tcx = self.tcx.tcx;
 
@@ -72,7 +87,11 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
         let pred_inner = ty::ExistentialPredicate::AutoTrait(auto_trait_def_id.skip_binder());
         let pred = ty::Binder::bind_with_vars(pred_inner, auto_trait_def_id.bound_vars());
 
-        let preds = tcx.mk_poly_existential_predicates_from_iter([pred].into_iter());
+        // require to be sorted or ICE
+        let mut preds = [pred, move_pred];
+        preds.sort_by(|a, b| a.skip_binder().stable_cmp(tcx, &b.skip_binder()));
+        let preds = tcx.mk_poly_existential_predicates_from_iter(preds.into_iter());
+
         Ty::new_dynamic(tcx, preds, region)
     }
 
@@ -82,6 +101,7 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
         principal_ty: Option<Ty<'tcx>>,
         auto_trait_def_ids: &[ty::Binder<'tcx, DefId>],
         region: Region<'tcx>,
+        move_pred: ty::Binder<'tcx, ty::ExistentialPredicate<'tcx>>,
     ) -> InterpResult<'tcx> {
         let tcx = self.tcx.tcx;
 
@@ -109,7 +129,7 @@ impl<'tcx> InterpCx<'tcx, CompileTimeMachine<'tcx>> {
             let Some((_i, elem_place)) = elems.next(self)? else {
                 span_bug!(self.tcx.span, "DynTrait.predicates length computed wrong (auto)");
             };
-            let auto_ty = self.mk_dyn_principal_auto_trait_ty(*auto, region);
+            let auto_ty = self.mk_dyn_principal_auto_trait_ty(*auto, region, move_pred);
             self.write_dyn_trait_predicate(elem_place, auto_ty, true)?;
         }
 
